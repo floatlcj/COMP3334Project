@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Register</title>
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
     <!-- External CSS -->
-    <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='styles2.css') }}" rel="stylesheet">
 </head>
 <body>
-    <div class="login-container">
+    <div class="register-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
@@ -18,11 +18,11 @@
             {% endfor %}
           {% endif %}
         {% endwith %}
-        <h2 class="text-center">Login</h2>
+        <h2 class="text-center">Register</h2>
         {% if error %}
             <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
-        <form action="/login" method="post">
+        <form action="/register" method="post">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" class="form-control" id="username" name="username" required>
@@ -31,26 +31,15 @@
                 <label for="password">Password</label>
                 <input type="password" class="form-control" id="password" name="password" required>
             </div>
+            <div class="form-group">
+                <label for="password re-input">Password</label>
+                <input type="password re-input" class="form-control" id="password re-input" name="password re-input" required>
+            </div>
             <div class="text-center">
-                <button type="submit" class="btn btn-primary">Login</button>
+                <button type="submit" class="btn btn-primary">Register</button>
             </div>
-
-
         </form>
-        <!-- <form action="/goToRegister" method="post">
-            <div class="text-center" style="margin-top: 10px;">
-                <a href="{{url_for('goToRegister')}} target="_blank" style="background-color: blue; color: white; padding: 10px 20px; display: inline-block; cursor: pointer; border-radius: 15px;">
-                    Register!
-                </a>
-            </div>
-        </form> -->
-        <div class="text-center" style="margin-top: 10px;">
-            <!-- <a href="register.html" target="_blank" style="background-color: blue; color: white; padding: 10px 20px; display: inline-block; cursor: pointer; border-radius: 15px;">
-                Register!
-            </a> -->
-            <li><a href="/goToRegister">register</a></li>
-        </div>
-
     </div>
 </body>
 </html>
+
