@@ -222,12 +222,146 @@ async function initial_ECDH(){
 
 async function receive_ECDH_response(otherpublickey){
     await generate_secret_key(otherpublickey);
+    await generate_encryption_decryption_key_user1();
 }
 
 async function reply_to_ECDH(otherpublickey){
     await generateKey();
     await sendECDH_response();
     await generate_secret_key(otherpublickey);
+    await generate_encryption_decryption_key_user2();
+}
+
+async function generate_encryption_decryption_key_user1(){
+    let keyMaterial =await get_shared_secret_key();
+    console.log(typeof keyMaterial);
+    console.log(keyMaterial);
+    let count = JSON.parse(localStorage.getItem('secret_bits_counter'+peer_id.toString()))+1;
+    localStorage.setItem('secret_bits_counter'+peer_id.toString(), JSON.stringify(count));
+    let encryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID+"to"+peer_id.toString());
+    let decryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID);
+    console.log(encryption);
+    console.log(decryption);
+
+    // buffer array
+    const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
+    let encryption_str = getArrayBufferString(encryption_exported);
+    localStorage.setItem("encryption_key_"+peer_id.toString(),encryption_str);
+    const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
+    let decryption_str = getArrayBufferString(decryption_exported);
+    localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+
+    let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    console.log(mac_me);
+    console.log(mac_other);
+
+    // const mac_me_exported = await window.crypto.subtle.exportKey("raw",mac_me);
+    // let mac_me_str = getArrayBufferString(mac_me);
+    // localStorage.setItem("mac_me_"+peer_id.toString(),mac_me_str);
+    // const mac_other_exported = await window.crypto.subtle.exportKey("raw",mac_other);
+    // let mac_other_str= getArrayBufferString(mac_other);
+    // localStorage.setItem("mac_other"+peer_id.toString(),mac_other_str);
+    
+    mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
+    // console.log(typeof mac_me_exported);
+    localStorage.setItem("mac_me_"+peer_id.toString(),JSON.stringify(mac_me_exported));
+    mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
+    localStorage.setItem("mac_other_"+peer_id.toString(),JSON.stringify(mac_other_exported));
+
+
+}
+
+async function generate_encryption_decryption_key_user2(){
+    let keyMaterial =await get_shared_secret_key();
+    console.log(typeof keyMaterial);
+    console.log(keyMaterial);
+    let count = JSON.parse(localStorage.getItem('secret_bits_counter'+peer_id.toString()))+1;
+    localStorage.setItem('secret_bits_counter'+peer_id.toString(), JSON.stringify(count));
+    let decryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID.toString()+"to"+peer_id.toString());
+    let encryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID.toString());
+    
+    const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
+    let encryption_str = getArrayBufferString(encryption_exported);
+    localStorage.setItem("encryption_key_"+peer_id.toString(),encryption_str);
+    const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
+    let decryption_str = getArrayBufferString(decryption_exported);
+    localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+
+    let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    let mac_me = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    console.log(mac_me);
+    console.log(mac_other);
+
+    mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
+    // console.log(typeof mac_me_exported);
+    localStorage.setItem("mac_me_"+peer_id.toString(),JSON.stringify(mac_me_exported));
+    mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
+    localStorage.setItem("mac_other_"+peer_id.toString(),JSON.stringify(mac_other_exported));
+
+    // const mac_me_exported = await window.crypto.subtle.exportKey("raw",mac_me);
+    // let mac_me_str = getArrayBufferString(mac_me);
+    // localStorage.setItem("mac_me_"+peer_id.toString(),mac_me_str);
+    // const mac_other_exported = await window.crypto.subtle.exportKey("raw",mac_other);
+    // let mac_other_str= getArrayBufferString(mac_other);
+    // localStorage.setItem("mac_other"+peer_id.toString(),mac_other_str);
+
+    // myExportPublicKey = await window.crypto.subtle.exportKey(
+    // "jwk",
+    // mac_me);
+    // console.log(myExportPublicKey);
+    // myExportPublicKey = await window.crypto.subtle.exportKey(
+    // "jwk",
+    // mac_other);
+    // console.log(myExportPublicKey);
+    // console.log(mac_other);
+}
+
+  /*
+  Given some key material and some random salt,
+  derive an AES-GCM key using HKDF.
+  */
+  function getKey(keyMaterial, saltnum, information) {
+    return window.crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        salt: numToUint8Array(saltnum),
+        info: new Uint8Array(information),
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+  
+  function getmacKey(keyMaterial, saltnum, information) {
+    return window.crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        salt: numToUint8Array(saltnum),
+        info: new Uint8Array(information),
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "HMAC", 
+        hash: "SHA-256",
+        length: 256 },
+      true,
+      ["sign", "verify"]
+    );
+  }
+
+  function numToUint8Array(num) {
+  let arr = new Uint8Array(16);
+
+  for (let i = 0; i < 16; i++) {
+    arr[i] = num % 256;
+    num = Math.floor(num / 256);
+  }
+
+  return arr;
 }
 
 async function generate_secret_key(otherPublicKey){
@@ -242,18 +376,23 @@ async function generate_secret_key(otherPublicKey){
     true,
     []
   );
-    mySecretKey = await deriveSharedSecret(
+    await deriveSharedSecret(
       myKeyPair.privateKey,
       publicKey
     );
-
+    // console.log(typeof mySecretKey);
     // console.log(mySecretKey);
-    // myExportPublicKey = await window.crypto.subtle.exportKey(
-    // "jwk",
+    // exportsecret_key = await window.crypto.subtle.exportKey(
+    // "raw",
     // mySecretKey);
-    // console.log(myExportPublicKey);
+    // console.log(exportsecret_key);
+    // console.log(typeof exportsecret_key);
+    // localStorage.setItem('shared_secret'+peer_id.toString(), exportsecret_key);
+    // localStorage.setItem('shared_secret_used'+peer_id.toString(), JSON.stringify(0));
 
 }
+
+
 
 
 
@@ -272,6 +411,8 @@ async function generateKey() {
     myKeyPair.publicKey);
     console.log(myExportPublicKey);
 }
+
+
 
     /*
   Derive an AES key, given:
@@ -305,15 +446,38 @@ async function generateKey() {
     const buffer = new Uint8Array(secret, 0, 48);
     content = `${buffer}…[${secret.byteLength} bytes total]`;
     console.log(content)
+    // console.log(secret)
+    let str = getArrayBufferString(secret);
+    localStorage.setItem("secretbits_"+peer_id.toString(),str);
+    localStorage.setItem("secret_bits_counter_"+peer_id.toString(),0);
+  }
+
+  function get_shared_secret_key(){
+    let secretfromstorage = parseArrayBufferString(localStorage.getItem("secretbits_"+peer_id.toString()));
+    // let strst = localStorage.getItem("secretbits");
+    
+    // console.log(secretfromstorage);
+    const buffer2 = new Uint8Array(secretfromstorage,0,48);
+    content2 = `${buffer2}…[${secretfromstorage.byteLength} bytes total]`;
+    console.log(content2)
 
     return window.crypto.subtle.importKey(
       "raw",
-      secret,
+      secretfromstorage,
       { name: "HKDF" },
       false,
       ["deriveKey"]
     );
   }
+
+
+  function getArrayBufferString(arrayBuffer){
+    return new Uint8Array(arrayBuffer).toString()
+  }
+  function parseArrayBufferString(string){
+    return new Uint8Array(string.split(',')).buffer
+  }
+
 
 
 
