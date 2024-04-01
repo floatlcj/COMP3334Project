@@ -82,8 +82,8 @@ def fetch_messages():
     peer_id = request.args.get('peer_id', type=int)
     
     cur = mysql.connection.cursor()
-    query = """SELECT message_id,sender_id,receiver_id,message_text FROM messages 
-               WHERE message_id > %s AND 
+    query = """SELECT message_id,sender_id,receiver_id,message_text,message_type FROM messages 
+                   WHERE message_id > %s AND 
                ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
                ORDER BY message_id ASC"""
     cur.execute(query, (last_message_id, peer_id, session['user_id'], session['user_id'], peer_id))
@@ -95,6 +95,10 @@ def fetch_messages():
 
     cur.close()
     return jsonify({'messages': messages})
+
+@app.route('/goToRegister')
+def goToRegister():
+    return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -125,15 +129,19 @@ def send_message():
     sender_id = session['user_id']
     receiver_id = request.json['receiver_id']
     message_text = request.json['message_text']
+    message_type = request.json['message_type']
 
     # Assuming you have a function to save messages
-    save_message(sender_id, receiver_id, message_text)
+    save_message(sender_id, receiver_id, message_text, message_type)
+    # save_message(sender_id, receiver_id, message_text)
     
     return jsonify({'status': 'success', 'message': 'Message sent'}), 200
 
-def save_message(sender, receiver, message):
+def save_message(sender, receiver, message, msg_type):
     cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)", (sender, receiver, message,))
+    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text, message_type) VALUES (%s, %s, %s, %s)", (sender, receiver, message, msg_type))
+    # cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)", (sender, receiver, message))
+
     mysql.connection.commit()
     cur.close()
 
