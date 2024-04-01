@@ -1,0 +1,6 @@
+# ignore db-data directory
+db-data/
+
+__pycache__/
+.idea/
+sessions/
