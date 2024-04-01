@@ -8,6 +8,8 @@ services:
       - 8443:8443
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ec384-key-pair-group12.pem:/etc/nginx/ec384-key-pair-group12.pem
+      - ./group12.crt:/etc/nginx/group12.crt
     depends_on:
       - webapp
 
