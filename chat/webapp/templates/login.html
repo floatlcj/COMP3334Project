@@ -74,10 +74,16 @@ function sendECDH_response(){
 // Send message function
 function sendMessage(type) {
     if (peer_id == -1) return; // Exit if no peer selected
-    let message0;
-    if (type=='normal') message0 = document.getElementById('messageInput').value;
-    if (type=='ECDH request'||type=='ECDH response') message0 = myExportPublicKey;
-    const message = message0;
+    let message0,message;
+    if (type=='normal') {
+        message0 = document.getElementById('messageInput').value;
+        message = encryptMessage(message0);
+    }
+    if (type=='ECDH request'||type=='ECDH response') {
+        message0 = myExportPublicKey;
+        message = message0;
+    }
+    // const message = message0;
     const payload = {
         receiver_id: peer_id,
         message_text: message,
@@ -222,22 +228,22 @@ async function initial_ECDH(){
 
 async function receive_ECDH_response(otherpublickey){
     await generate_secret_key(otherpublickey);
-    await generate_encryption_decryption_key_user1();
+    await generate_edmac_key_user1();
 }
 
 async function reply_to_ECDH(otherpublickey){
     await generateKey();
     await sendECDH_response();
     await generate_secret_key(otherpublickey);
-    await generate_encryption_decryption_key_user2();
+    await generate_edmac_key_user2();
 }
 
-async function generate_encryption_decryption_key_user1(){
+async function generate_edmac_key_user1(){
     let keyMaterial =await get_shared_secret_key();
     console.log(typeof keyMaterial);
     console.log(keyMaterial);
-    let count = JSON.parse(localStorage.getItem('secret_bits_counter'+peer_id.toString()))+1;
-    localStorage.setItem('secret_bits_counter'+peer_id.toString(), JSON.stringify(count));
+    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
+    localStorage.setItem('secret_bits_counter_'+peer_id.toString(), JSON.stringify(count));
     let encryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID+"to"+peer_id.toString());
     let decryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID);
     console.log(encryption);
@@ -250,18 +256,12 @@ async function generate_encryption_decryption_key_user1(){
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
     localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+    localStorage.setItem("message_iv_"+peer_id.toString(),0);
 
     let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
     let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
     console.log(mac_me);
     console.log(mac_other);
-
-    // const mac_me_exported = await window.crypto.subtle.exportKey("raw",mac_me);
-    // let mac_me_str = getArrayBufferString(mac_me);
-    // localStorage.setItem("mac_me_"+peer_id.toString(),mac_me_str);
-    // const mac_other_exported = await window.crypto.subtle.exportKey("raw",mac_other);
-    // let mac_other_str= getArrayBufferString(mac_other);
-    // localStorage.setItem("mac_other"+peer_id.toString(),mac_other_str);
     
     mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
     // console.log(typeof mac_me_exported);
@@ -272,12 +272,12 @@ async function generate_encryption_decryption_key_user1(){
 
 }
 
-async function generate_encryption_decryption_key_user2(){
+async function generate_edmac_key_user2(){
     let keyMaterial =await get_shared_secret_key();
     console.log(typeof keyMaterial);
     console.log(keyMaterial);
-    let count = JSON.parse(localStorage.getItem('secret_bits_counter'+peer_id.toString()))+1;
-    localStorage.setItem('secret_bits_counter'+peer_id.toString(), JSON.stringify(count));
+    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
+    localStorage.setItem('secret_bits_counter_'+peer_id.toString(), JSON.stringify(count));
     let decryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID.toString()+"to"+peer_id.toString());
     let encryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID.toString());
     
@@ -298,23 +298,6 @@ async function generate_encryption_decryption_key_user2(){
     localStorage.setItem("mac_me_"+peer_id.toString(),JSON.stringify(mac_me_exported));
     mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
     localStorage.setItem("mac_other_"+peer_id.toString(),JSON.stringify(mac_other_exported));
-
-    // const mac_me_exported = await window.crypto.subtle.exportKey("raw",mac_me);
-    // let mac_me_str = getArrayBufferString(mac_me);
-    // localStorage.setItem("mac_me_"+peer_id.toString(),mac_me_str);
-    // const mac_other_exported = await window.crypto.subtle.exportKey("raw",mac_other);
-    // let mac_other_str= getArrayBufferString(mac_other);
-    // localStorage.setItem("mac_other"+peer_id.toString(),mac_other_str);
-
-    // myExportPublicKey = await window.crypto.subtle.exportKey(
-    // "jwk",
-    // mac_me);
-    // console.log(myExportPublicKey);
-    // myExportPublicKey = await window.crypto.subtle.exportKey(
-    // "jwk",
-    // mac_other);
-    // console.log(myExportPublicKey);
-    // console.log(mac_other);
 }
 
   /*
@@ -325,7 +308,7 @@ async function generate_encryption_decryption_key_user2(){
     return window.crypto.subtle.deriveKey(
       {
         name: "HKDF",
-        salt: numToUint8Array(saltnum),
+        salt: saltnumToUint8Array(saltnum),
         info: new Uint8Array(information),
         hash: "SHA-256",
       },
@@ -340,7 +323,7 @@ async function generate_encryption_decryption_key_user2(){
     return window.crypto.subtle.deriveKey(
       {
         name: "HKDF",
-        salt: numToUint8Array(saltnum),
+        salt: saltnumToUint8Array(saltnum),
         info: new Uint8Array(information),
         hash: "SHA-256",
       },
@@ -353,8 +336,19 @@ async function generate_encryption_decryption_key_user2(){
     );
   }
 
-  function numToUint8Array(num) {
+  function saltnumToUint8Array(num) {
   let arr = new Uint8Array(16);
+
+  for (let i = 0; i < 16; i++) {
+    arr[i] = num % 256;
+    num = Math.floor(num / 256);
+  }
+
+  return arr;
+}
+
+function ivnumToUint8Array(num) {
+  let arr = new Uint8Array(12);
 
   for (let i = 0; i < 16; i++) {
     arr[i] = num % 256;
@@ -380,15 +374,6 @@ async function generate_secret_key(otherPublicKey){
       myKeyPair.privateKey,
       publicKey
     );
-    // console.log(typeof mySecretKey);
-    // console.log(mySecretKey);
-    // exportsecret_key = await window.crypto.subtle.exportKey(
-    // "raw",
-    // mySecretKey);
-    // console.log(exportsecret_key);
-    // console.log(typeof exportsecret_key);
-    // localStorage.setItem('shared_secret'+peer_id.toString(), exportsecret_key);
-    // localStorage.setItem('shared_secret_used'+peer_id.toString(), JSON.stringify(0));
 
 }
 
@@ -413,33 +398,11 @@ async function generateKey() {
 }
 
 
-
-    /*
-  Derive an AES key, given:
-  - our ECDH private key
-  - their ECDH public key
-  */
-//   function deriveSecretKey(privateKey, publicKey) {
-
-    
-//     return window.crypto.subtle.deriveKey(
-//       {
-//         name: "ECDH",
-//         public: publicKey,
-//       },
-//       privateKey,
-//       {
-//         name: "AES-GCM",
-//         length: 256,
-//       },
-//       true,
-//       ["encrypt", "decrypt"]
-//     );
-//   }
-
   async function deriveSharedSecret(privateKey, publicKey) {
     const secret = await window.crypto.subtle.deriveBits(
-      { name: "ECDH", public: publicKey },
+        // NOT SURE 384
+      { name: "ECDH", 
+      public: publicKey },
       privateKey,
       384
     );
@@ -470,6 +433,57 @@ async function generateKey() {
     );
   }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  function getMessageEncoding(message0) {
+    const message = message0;
+    const enc = new TextEncoder();
+    return enc.encode(message);
+    }
+
+async function encryptMessage(message) {
+    console.log(message);
+    const encoded = await getMessageEncoding(message);
+    console.log(getArrayBufferString(encoded));
+    let key = await getEncryptionKey();
+    // iv will be needed for decryption
+    let count = await JSON.parse(localStorage.getItem("message_iv_"+peer_id.toString()))+1;
+    const iv = await ivnumToUint8Array(count);
+    ciphertext = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", 
+        iv: iv,
+        additionalData: parseArrayBufferString("CHAT_MSG_USER"+myID.toString+"to"+peer_id.toString())},
+        key,
+        encoded,
+    );
+    // the cipher text is length of plain text + 16 bytes 
+    localStorage.setItem("message_iv_"+peer_id.toString(), JSON.toString(count));
+    let buffer = new Uint8Array(ciphertext, 0, 5);
+    console.log("cyphertext value "+ `${buffer}...[${ciphertext.byteLength} bytes total]`);
+    console.log("type of ciphertect ",typeof ciphertext);
+    console.log(getArrayBufferString(ciphertext));
+    console.log(typeof getArrayBufferString(ciphertext));
+
+}
+
+function getEncryptionKey(){
+    let keystr = localStorage.getItem("encryption_key_"+peer_id.toString());
+    let array_buffer = parseArrayBufferString(keystr);
+    return window.crypto.subtle.importKey(
+      "raw",
+      array_buffer,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"]
+    );
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//     function decryptMessage(key, ciphertext) {
+//   // The iv value is the same as that used for encryption
+//   return window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+// }
+
 
   function getArrayBufferString(arrayBuffer){
     return new Uint8Array(arrayBuffer).toString()
@@ -477,84 +491,6 @@ async function generateKey() {
   function parseArrayBufferString(string){
     return new Uint8Array(string.split(',')).buffer
   }
-
-
-
-
-// /*
-//     Encrypt the message using the secret key.
-//     Update the "ciphertextValue" box with a representation of part of
-//     the ciphertext.
-// */
-// async function encrypt(secretKey) {
-//     const ciphertextValue = document.querySelector(".ecdh .ciphertext-value");
-//     ciphertextValue.textContent = "";
-//     const decryptedValue = document.querySelector(".ecdh .decrypted-value");
-//     decryptedValue.textContent = "";
-
-//     iv = window.crypto.getRandomValues(new Uint8Array(12));
-//     let encoded = getMessageEncoding();
-
-//     ciphertext = await window.crypto.subtle.encrypt(
-//       {
-//         name: "AES-GCM",
-//         iv: iv,
-//       },
-//       secretKey,
-//       encoded
-//     );
-
-//     let buffer = new Uint8Array(ciphertext, 0, 5);
-//     ciphertextValue.classList.add("fade-in");
-//     ciphertextValue.addEventListener("animationend", () => {
-//       ciphertextValue.classList.remove("fade-in");
-//     });
-//     ciphertextValue.textContent = `${buffer}...[${ciphertext.byteLength} bytes total]`;
-// }
-
-// /*
-//   Decrypt the message using the secret key.
-//   If the ciphertext was decrypted successfully,
-//   update the "decryptedValue" box with the decrypted value.
-//   If there was an error decrypting,
-//   update the "decryptedValue" box with an error message.
-//   */
-// async function decrypt(secretKey) {
-//     const decryptedValue = document.querySelector(".ecdh .decrypted-value");
-//     decryptedValue.textContent = "";
-//     decryptedValue.classList.remove("error");
-
-//     try {
-//       let decrypted = await window.crypto.subtle.decrypt(
-//         {
-//           name: "AES-GCM",
-//           iv: iv,
-//         },
-//         secretKey,
-//         ciphertext
-//       );
-
-//       let dec = new TextDecoder();
-//       decryptedValue.classList.add("fade-in");
-//       decryptedValue.addEventListener("animationend", () => {
-//         decryptedValue.classList.remove("fade-in");
-//       });
-//       decryptedValue.textContent = dec.decode(decrypted);
-//     } catch (e) {
-//       decryptedValue.classList.add("error");
-//       decryptedValue.textContent = "*** Decryption error ***";
-//     }
-// }
-
-// const generateKeyPair = window.crypto.subtle.generateKey(
-//     {
-//       name: "ECDH",
-//       namedCurve: "P-384"
-//     },
-//     false,
-//     ["deriveKey"]
-//   );
-
 
 
 </script>
