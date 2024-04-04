@@ -74,24 +74,26 @@ function sendECDH_response(){
     sendMessage("ECDH response");
 }
 // Send message function
-function sendMessage(type) {
+async function sendMessage(type) {
     if (peer_id == -1) return; // Exit if no peer selected
     let message0,message;
     let status = 'n';
     // TODO 
     let value = '';
+    let tag = '';
+    let iv = '';
     if (type=='normal') {
         message0 = document.getElementById('messageInput').value;
-        // message = encryptMessage(message0);
-        message = message0;
-        // iv = signiv();
-        iv = '';
+        message = await encryptMessage(message0);
+        // message = message0;
+        iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()))).toString();
+        tag = await signiv();
+        // iv = '';
         
     }
     if (type=='ECDH request'||type=='ECDH response') {
         message0 = myExportPublicKey;
         message = message0;
-        iv = '';
     }
     // const message = message0;
     const payload = {
@@ -99,8 +101,10 @@ function sendMessage(type) {
         message_text: message,
         message_type: type,
         message_iv: iv,
-        message_value: value
+        message_value: value,
+        message_tag: tag,
     };
+    console.log(JSON.stringify(payload));
 
     fetch('/send_message', {
         method: 'POST', // Specify the method
@@ -184,6 +188,7 @@ function fetchMessages() {
                 if (message.message_type=='ECDH response' && message.sender_id == peer_id){
                     receive_ECDH_response(message.message_text);
                 }
+
             });
         })
         .catch(error => console.error('Error fetching messages:', error));
@@ -270,7 +275,8 @@ async function generate_edmac_key_user1(){
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
     localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
-    localStorage.setItem("message_iv_"+peer_id.toString(),0);
+    localStorage.setItem("encryption_iv_"+peer_id.toString(),0);
+    localStorage.setItem("decryption_iv_"+peer_id.toString(),0);
 
     let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
     let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
@@ -301,6 +307,8 @@ async function generate_edmac_key_user2(){
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
     localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+    localStorage.setItem("encryption_iv_"+peer_id.toString(),0);
+    localStorage.setItem("decryption_iv_"+peer_id.toString(),0);
 
     let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
     let mac_me = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
@@ -456,7 +464,7 @@ async function encryptMessage(message) {
     console.log(getArrayBufferString(encoded));
     let key = await getEncryptionKey();
     // iv will be needed for decryption
-    let count = await JSON.parse(localStorage.getItem("message_iv_"+peer_id.toString()))+1;
+    let count = await JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()))+1;
     const iv = await ivnumToUint8Array(count);
     ciphertext = await window.crypto.subtle.encrypt(
         { name: "AES-GCM", 
@@ -466,7 +474,7 @@ async function encryptMessage(message) {
         encoded,
     );
     // the cipher text is length of plain text + 16 bytes 
-    localStorage.setItem("message_iv_"+peer_id.toString(), JSON.toString(count));
+    localStorage.setItem("encryption_iv_"+peer_id.toString(), JSON.stringify(count));
     let buffer = new Uint8Array(ciphertext, 0, 5);
     console.log("cyphertext value "+ `${buffer}...[${ciphertext.byteLength} bytes total]`);
     console.log("type of ciphertect ",typeof ciphertext);
@@ -492,25 +500,36 @@ function getEncryptionKey(){
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 async function signiv(){
-  let count = JSON.parse(localStorage.getItem("message_iv_"+peer_id.toString()));
+  let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()));
   const iv = await ivnumToUint8Array(count);
   let iv_str = getArrayBufferString(iv);
   let encoded = getMessageEncoding(iv_str);
+  let key = await get_my_mac();
   let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
+  let signstr = getArrayBufferString(signature);
+  console.log("signature:")
+  console.log(signstr);
+  console.log(typeof signature);
+  return signstr;
   
 
 }
 
 function get_my_mac(){
+  jwk = JSON.parse(localStorage.getItem("mac_me_"+peer_id.toString().toString()));
+  return window.crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    {
+      name: "HMAC",
+      hash: "SHA-256",
+      length: 256
+    },
+    true,
+    ["sign"],
+  );
 
 }
-
-
-
-//     function decryptMessage(key, ciphertext) {
-//   // The iv value is the same as that used for encryption
-//   return window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-// }
 
 
 function getMessageEncoding(message0) {
@@ -525,6 +544,16 @@ function getMessageEncoding(message0) {
   function parseArrayBufferString(string){
     return new Uint8Array(string.split(',')).buffer
   }
+
+  function arrayBufferToBase64( buffer ) {
+    var binary = '';
+    var bytes = new Uint8Array( buffer );
+    var len = bytes.byteLength;
+    for (var i = 0; i < len; i++) {
+        binary += String.fromCharCode( bytes[ i ] );
+    }
+    return window.btoa( binary );
+}
 
 
 </script>
