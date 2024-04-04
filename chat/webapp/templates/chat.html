@@ -195,15 +195,23 @@ function fetchMessages() {
 }
 
 // Display a single message
-function displayMessage(message) {
+async function displayMessage(message) {
     const messagesContainer = document.getElementById('messages');
     const messageElement = document.createElement('div');
 
     // Determine sender and receiver strings
     const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
     const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
-
+    console.log("this");
+    // if (message.message_type=="normal" && message.sender_id!=myID){
+    //   console.log("sadd");
+    //   let text = await decryptMessage(message);
+    //   messageElement.textContent = `From ${sender} to ${receiver}: ${text}`;
+    // }else {
+    //   messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
+    // }
     messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
+    // console.log(messageElement.textContent);
     messagesContainer.appendChild(messageElement);
 
 }
@@ -399,10 +407,6 @@ async function generate_secret_key(otherPublicKey){
 
 }
 
-
-
-
-
 async function generateKey() {
     myKeyPair = await window.crypto.subtle.generateKey(
     {
@@ -498,6 +502,92 @@ function getEncryptionKey(){
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  /*
+  Fetch the ciphertext and decrypt it.
+  Write the decrypted message into the "Decrypted" box.
+  */
+  async function decryptMessage(message) {
+    
+    let valid = verifyMessage(message);
+    if (!valid){
+      window.alert("signature invalid!")
+      return "";
+    }
+
+    let key = await getDecryptionKey();
+    const iv = await ivnumToUint8Array(Number(message.message_iv));
+    let array_buffer = await parseArrayBufferString(message.message_text);
+    let decrypted = await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: iv
+      },
+      key,
+      array_buffer
+    );
+
+    let dec = new TextDecoder();
+    decrypted_msg= await dec.decode(decrypted);
+    console.log(decrypted_msg);
+    console.log(typeof decrypted_msg);
+  }
+
+  /*
+  Fetch the encoded message-to-sign and verify it against the stored signature.
+  * If it checks out, set the "valid" class on the signature.
+  * Otherwise set the "invalid" class.
+  */
+  async function verifyMessage(message) {
+    const signatureValue = message.message_tag;
+    let signature_array = parseArrayBufferString(signatureValue);
+    let count = Number(message.message_iv);
+    const iv = await ivnumToUint8Array(count);
+    let iv_str = getArrayBufferString(iv);
+    let encoded = getMessageEncoding(iv_str);
+    let key = await get_other_mac();
+
+    let result = await window.crypto.subtle.verify(
+      "HMAC",
+      key,
+      signature_array,
+      encoded
+    );
+
+    console.log(result);
+    console.log(typeof result);
+    return result;
+  }
+
+  function getDecryptionKey(){
+    let keystr = localStorage.getItem("decryption_key_"+peer_id.toString());
+    let array_buffer = parseArrayBufferString(keystr);
+    return window.crypto.subtle.importKey(
+      "raw",
+      array_buffer,
+      { name: "AES-GCM" },
+      false,
+      ["decrypt"]
+    );
+}
+
+function get_other_mac(){
+  jwk = JSON.parse(localStorage.getItem("mac_other_"+peer_id.toString().toString()));
+  return window.crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    {
+      name: "HMAC",
+      hash: "SHA-256",
+      length: 256
+    },
+    true,
+    ["verify"],
+  );
+
+}
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 async function signiv(){
   let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()));
@@ -530,6 +620,8 @@ function get_my_mac(){
   );
 
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 function getMessageEncoding(message0) {
