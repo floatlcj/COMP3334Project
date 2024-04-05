@@ -178,8 +178,8 @@ function fetchMessages() {
     fetch(`/fetch_messages?last_message_id=${lastMessageId}&peer_id=${peer_id}`)
         .then(response => response.json())
         .then(data => {
-            data.messages.forEach(message => {
-                displayMessage(message);
+            data.messages.forEach(async(message) => {
+                await displayMessage(message);
                 lastMessageId = message.message_id;
                 console.log(message.message_type);
                 if (message.message_type == "ECDH request" && message.sender_id == peer_id){
@@ -196,6 +196,7 @@ function fetchMessages() {
 
 // Display a single message
 async function displayMessage(message) {
+  // try{
     const messagesContainer = document.getElementById('messages');
     const messageElement = document.createElement('div');
 
@@ -203,16 +204,23 @@ async function displayMessage(message) {
     const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
     const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
     console.log("this");
-    // if (message.message_type=="normal" && message.sender_id!=myID){
-    //   console.log("sadd");
-    //   let text = await decryptMessage(message);
-    //   messageElement.textContent = `From ${sender} to ${receiver}: ${text}`;
-    // }else {
-    //   messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
-    // }
-    messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
+    if (message.message_type=="normal"){
+      console.log("sadd");
+      let text = await decryptMessage(message);
+      messageElement.textContent = `From ${sender} to ${receiver}: ${text}`;
+      // console.log("message:",messageElement.textContent);
+    }else {
+      messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
+    }
+    // messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
     // console.log(messageElement.textContent);
     messagesContainer.appendChild(messageElement);
+//   }catch(e) {
+//     console.log(e.name, e.message);
+// }
+  // }
+  
+
 
 }
 
@@ -279,10 +287,10 @@ async function generate_edmac_key_user1(){
     // buffer array
     const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
     let encryption_str = getArrayBufferString(encryption_exported);
-    localStorage.setItem("encryption_key_"+peer_id.toString(),encryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString(),encryption_str);
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
-    localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString(),decryption_str);
     localStorage.setItem("encryption_iv_"+peer_id.toString(),0);
     localStorage.setItem("decryption_iv_"+peer_id.toString(),0);
 
@@ -293,9 +301,9 @@ async function generate_edmac_key_user1(){
     
     mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
     // console.log(typeof mac_me_exported);
-    localStorage.setItem("mac_me_"+peer_id.toString(),JSON.stringify(mac_me_exported));
+    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString(),JSON.stringify(mac_me_exported));
     mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
-    localStorage.setItem("mac_other_"+peer_id.toString(),JSON.stringify(mac_other_exported));
+    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString(),JSON.stringify(mac_other_exported));
 
 
 }
@@ -311,10 +319,10 @@ async function generate_edmac_key_user2(){
     
     const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
     let encryption_str = getArrayBufferString(encryption_exported);
-    localStorage.setItem("encryption_key_"+peer_id.toString(),encryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString(),encryption_str);
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
-    localStorage.setItem("decryption_key_"+peer_id.toString(),decryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString(),decryption_str);
     localStorage.setItem("encryption_iv_"+peer_id.toString(),0);
     localStorage.setItem("decryption_iv_"+peer_id.toString(),0);
 
@@ -325,9 +333,9 @@ async function generate_edmac_key_user2(){
 
     mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
     // console.log(typeof mac_me_exported);
-    localStorage.setItem("mac_me_"+peer_id.toString(),JSON.stringify(mac_me_exported));
+    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString(),JSON.stringify(mac_me_exported));
     mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
-    localStorage.setItem("mac_other_"+peer_id.toString(),JSON.stringify(mac_other_exported));
+    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString(),JSON.stringify(mac_other_exported));
 }
 
   /*
@@ -466,10 +474,11 @@ async function encryptMessage(message) {
     console.log(message);
     const encoded = await getMessageEncoding(message);
     console.log(getArrayBufferString(encoded));
-    let key = await getEncryptionKey();
+    let key = await get_enc_dec_Key("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString());
     // iv will be needed for decryption
     let count = await JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()))+1;
     const iv = await ivnumToUint8Array(count);
+    console.log(iv);
     ciphertext = await window.crypto.subtle.encrypt(
         { name: "AES-GCM", 
         iv: iv,
@@ -489,47 +498,45 @@ async function encryptMessage(message) {
 }
 
 
-function getEncryptionKey(){
-    let keystr = localStorage.getItem("encryption_key_"+peer_id.toString());
-    let array_buffer = parseArrayBufferString(keystr);
-    return window.crypto.subtle.importKey(
-      "raw",
-      array_buffer,
-      { name: "AES-GCM" },
-      false,
-      ["encrypt"]
-    );
-}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   /*
   Fetch the ciphertext and decrypt it.
   Write the decrypted message into the "Decrypted" box.
   */
+ // sender side
   async function decryptMessage(message) {
     
-    let valid = verifyMessage(message);
+    let valid = await verifyMessage(message);
     if (!valid){
       window.alert("signature invalid!")
       return "";
     }
 
-    let key = await getDecryptionKey();
+    // console.log("1");
+    let key = await get_enc_dec_Key("CHAT_KEY_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString());
+    // console.log("2");
     const iv = await ivnumToUint8Array(Number(message.message_iv));
+    console.log(iv);
     let array_buffer = await parseArrayBufferString(message.message_text);
+    console.log(getArrayBufferString(array_buffer));
     let decrypted = await window.crypto.subtle.decrypt(
       {
         name: "AES-GCM",
-        iv: iv
+        iv: iv,
+        additionalData: parseArrayBufferString("CHAT_KEY_USER"+myID.toString+"to"+peer_id.toString()),
       },
       key,
       array_buffer
     );
+    console.log(decrypted);
 
     let dec = new TextDecoder();
     decrypted_msg= await dec.decode(decrypted);
     console.log(decrypted_msg);
     console.log(typeof decrypted_msg);
+    return decrypted_msg;
+
   }
 
   /*
@@ -539,12 +546,13 @@ function getEncryptionKey(){
   */
   async function verifyMessage(message) {
     const signatureValue = message.message_tag;
+    console.log(signatureValue);
     let signature_array = parseArrayBufferString(signatureValue);
     let count = Number(message.message_iv);
     const iv = await ivnumToUint8Array(count);
     let iv_str = getArrayBufferString(iv);
     let encoded = getMessageEncoding(iv_str);
-    let key = await get_other_mac();
+    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString());
 
     let result = await window.crypto.subtle.verify(
       "HMAC",
@@ -558,20 +566,21 @@ function getEncryptionKey(){
     return result;
   }
 
-  function getDecryptionKey(){
-    let keystr = localStorage.getItem("decryption_key_"+peer_id.toString());
+  function get_enc_dec_Key(name){
+    let keystr = localStorage.getItem(name);
     let array_buffer = parseArrayBufferString(keystr);
     return window.crypto.subtle.importKey(
       "raw",
       array_buffer,
       { name: "AES-GCM" },
       false,
-      ["decrypt"]
+      ["encrypt","decrypt"]
     );
 }
 
-function get_other_mac(){
-  jwk = JSON.parse(localStorage.getItem("mac_other_"+peer_id.toString().toString()));
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+function get_mac(name){
+  jwk = JSON.parse(localStorage.getItem(name));
   return window.crypto.subtle.importKey(
     "jwk",
     jwk,
@@ -581,12 +590,12 @@ function get_other_mac(){
       length: 256
     },
     true,
-    ["verify"],
+    ["sign", "verify"],
   );
 
 }
 
-  ////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 
 async function signiv(){
@@ -594,7 +603,7 @@ async function signiv(){
   const iv = await ivnumToUint8Array(count);
   let iv_str = getArrayBufferString(iv);
   let encoded = getMessageEncoding(iv_str);
-  let key = await get_my_mac();
+  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString());
   let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
   let signstr = getArrayBufferString(signature);
   console.log("signature:")
@@ -605,21 +614,6 @@ async function signiv(){
 
 }
 
-function get_my_mac(){
-  jwk = JSON.parse(localStorage.getItem("mac_me_"+peer_id.toString().toString()));
-  return window.crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    {
-      name: "HMAC",
-      hash: "SHA-256",
-      length: 256
-    },
-    true,
-    ["sign"],
-  );
-
-}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
