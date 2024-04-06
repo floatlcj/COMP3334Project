@@ -23,6 +23,7 @@ CREATE TABLE messages (
     message_iv TEXT NOT NULL,
     message_value TEXT NOT NULL, 
     message_tag TEXT NOT NULL, 
+    message_secret_counter TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sender_id) REFERENCES users(user_id),
     FOREIGN KEY (receiver_id) REFERENCES users(user_id)
@@ -31,3 +32,5 @@ CREATE TABLE messages (
 -- Optionally, insert some initial data for testing
 INSERT INTO users (username, password) VALUES ('Alice', 'password123'); -- Use hashed passwords in production
 INSERT INTO users (username, password) VALUES ('Bob', 'password456'); -- Use hashed passwords in production
+INSERT INTO users (username, password) VALUES ('Cat', 'password789'); -- Use hashed passwords in production
+

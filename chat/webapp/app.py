@@ -84,7 +84,8 @@ def fetch_messages():
     peer_id = request.args.get('peer_id', type=int)
     
     cur = mysql.connection.cursor()
-    query = """SELECT message_id,sender_id,receiver_id,message_text,message_type, message_value, message_iv, message_tag FROM messages 
+    query = """SELECT message_id,sender_id,receiver_id,message_text,message_type, message_value, message_iv, message_tag, message_secret_counter
+     FROM messages 
                    WHERE message_id > %s AND 
                ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
                ORDER BY message_id ASC"""
@@ -135,16 +136,17 @@ def send_message():
     message_iv = request.json['message_iv']
     message_value = request.json['message_value']
     message_tag = request.json['message_tag']
+    message_secret_counter = request.json['message_secret_counter']
 
     # Assuming you have a function to save messages
-    save_message(sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag)
+    save_message(sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag, message_secret_counter)
     # save_message(sender_id, receiver_id, message_text)
     
     return jsonify({'status': 'success', 'message': 'Message sent'}), 200
 
-def save_message(sender, receiver, message, msg_type, msg_iv, msg_value, msg_tag):
+def save_message(sender, receiver, message, msg_type, msg_iv, msg_value, msg_tag, msg_secret_counter):
     cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag) VALUES (%s, %s, %s, %s,%s,%s, %s)", (sender, receiver, message, msg_type,msg_iv, msg_value, msg_tag))
+    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag, message_secret_counter) VALUES (%s, %s, %s, %s,%s,%s, %s, %s)", (sender, receiver, message, msg_type,msg_iv, msg_value, msg_tag, msg_secret_counter))
     # cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)", (sender, receiver, message))
 
     mysql.connection.commit()
