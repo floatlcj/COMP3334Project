@@ -110,6 +110,12 @@ def login():
         userDetails = request.form
         username = userDetails['username']
         password = userDetails['password']
+        valid = userDetails['valid']
+        input_str = userDetails['cpatchaTextBox']
+        if (valid!=input_str):
+            error = 'Invalid captcha'
+            return render_template('login.html', error=error)
+        
         cur = mysql.connection.cursor()
         cur.execute("SELECT user_id FROM users WHERE username=%s AND password=%s", (username, password,))
         account = cur.fetchone()
@@ -174,6 +180,53 @@ def logout():
     session.clear()
     flash('You have been successfully logged out.', 'info')  # Flash a logout success message
     return redirect(url_for('index'))
+
+# Registration for the new account
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    error = None
+    if request.method == 'POST':
+        userDetails = request.form
+        # Get the username and password
+        username = userDetails['username']
+        password = userDetails['password']
+
+        # Check whether the username is existed
+        if check_name_existed(username):
+            error = "Username is existed"
+        else:
+            register_new(username,password)
+
+    return render_template('login.html', error=error)
+
+def check_name_existed(username):
+    # Connect to the databse
+    cur = mysql.connection.cursor()
+
+    # Use sql to check whether there is same username in the database
+    cur.execute("SELECT COUNT(*) FROM users WHERE username = %s", (username,))
+    search_result = cur.fetchone()[0]
+    number_of_existing = int(search_result)
+
+    # Check whether the number of username is more than 0
+    if number_of_existing > 0:
+        # Already existing
+        return True
+    else:
+        # Not existing
+        return False
+
+def register_new(username,password):
+    # Connect to the databse
+    cur = mysql.connection.cursor()
+
+    # Use sql to input the new username and the password
+    cur.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, password))
+
+    # Commit the operation to save the change
+    mysql.connection.commit()
+    
+    return 
 
 if __name__ == '__main__':
     app.run(debug=True)

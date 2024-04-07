@@ -9,7 +9,7 @@
     <!-- External CSS -->
     <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
 </head>
-<body>
+<body onload="createCaptcha()">
     <div class="login-container">
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
@@ -31,12 +31,29 @@
                 <label for="password">Password</label>
                 <input type="password" class="form-control" id="password" name="password" required>
             </div>
+
+            <div >
+                <!-- <form onsubmit="validateCaptcha()"> -->
+                    <div id="captcha"></div>
+                    <input type="text" placeholder="Captcha" id="cpatchaTextBox" name ="cpatchaTextBox" required >
+                    <!-- <button type="submit">Submit</button> -->
+                  <!-- </form> -->
+            </div>
+
+            <input type="hidden" id="valid" name="valid"> 
+
             <div class="text-center">
                 <button type="submit" class="btn btn-primary">Login</button>
             </div>
-
-
         </form>
+        <!-- <div class="text-center">
+            <button type="submit" class="btn btn-primary">Login</button>
+        </div> -->
+        <button onclick="createCaptcha()" class="btn btn-primary">refresh</button>
+
+
+
+
         <!-- <form action="/goToRegister" method="post">
             <div class="text-center" style="margin-top: 10px;">
                 <a href="{{url_for('goToRegister')}} target="_blank" style="background-color: blue; color: white; padding: 10px 20px; display: inline-block; cursor: pointer; border-radius: 15px;">
@@ -44,13 +61,52 @@
                 </a>
             </div>
         </form> -->
+
         <div class="text-center" style="margin-top: 10px;">
-            <!-- <a href="register.html" target="_blank" style="background-color: blue; color: white; padding: 10px 20px; display: inline-block; cursor: pointer; border-radius: 15px;">
-                Register!
-            </a> -->
             <li><a href="/goToRegister">register</a></li>
         </div>
 
     </div>
 </body>
 </html>
+
+<script>
+    var code;
+function createCaptcha() {
+  //clear the contents of captcha div first 
+  document.getElementById('captcha').innerHTML = "";
+  var charsArray =
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@!#$%^&*";
+  var lengthOtp = 6;
+  var captcha = [];
+  for (var i = 0; i < lengthOtp; i++) {
+    //below code will not allow Repetition of Characters
+    var index = Math.floor(Math.random() * charsArray.length + 1); //get the next character from the array
+    if (captcha.indexOf(charsArray[index]) == -1)
+      captcha.push(charsArray[index]);
+    else i--;
+  }
+  var canv = document.createElement("canvas");
+  canv.id = "captcha";
+  canv.width = 100;
+  canv.height = 50;
+  var ctx = canv.getContext("2d");
+  ctx.font = "25px Georgia";
+  ctx.strokeText(captcha.join(""), 0, 30);
+  //storing captcha so that can validate you can save it somewhere else according to your specific requirements
+  code = captcha.join("");
+  document.getElementById("captcha").appendChild(canv); // adds the canvas to the body element
+  document.getElementById("valid").value = code; 
+}
+function validateCaptcha() {
+  event.preventDefault();
+//   debugger
+  if (document.getElementById("cpatchaTextBox").value == code) {
+    alert("Valid Captcha")
+  }else{
+    alert("Invalid Captcha. try Again");
+    createCaptcha();
+  }
+}
+
+</script>
