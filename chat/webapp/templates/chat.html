@@ -92,22 +92,24 @@ async function sendMessage(type) {
     if (type=='normal') {
         counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString())).toString();
         message0 = document.getElementById('messageInput').value;
-        message = await encryptMessage(message0);
+        message = await encryptMessage(message0, "CHAT_MSG_USER"+myID.toString+"to"+peer_id.toString());
         // message = message0;
         iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()))).toString();
-        tag = await signiv();
+        tag = await signiv(Number(counter),"");
     }
     if (type=='ECDH request'||type=='ECDH response') {
         message0 = myExportPublicKey;
         message = message0;
     }
     if (type=='refresh key'){
-        counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString())).toString();
-        message0 = "Keys changed";
-        message = await encrypt_changeKey_Message(message0);
-        // message = message0;
-        iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()))).toString();
-        tag = await signiv();
+        counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
+        message = "";
+        iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+(counter-1).toString()))).toString();
+        tag = await signpreiv(counter,"change");
+        // counter_previous = (counter).toString();
+        // put the old mac signed iv into msg_value
+        value = await signiv(counter-1,"change");
+        counter = ""
         // iv = '';
     }
     // const message = message0;
@@ -200,6 +202,9 @@ function fetchMessages() {
                 if (message.message_type=='ECDH response' && message.sender_id == peer_id){
                     receive_ECDH_response(message.message_text);
                 }
+                if (message.message_type=='refresh key' && message.sender_id == peer_id){
+                    reply_to_key_refresh(message);
+                }
 
             });
         })
@@ -221,7 +226,10 @@ async function displayMessage(message) {
       let text = await decryptMessage(message);
       messageElement.textContent = `From ${sender} to ${receiver}: ${text}`;
       // console.log("message:",messageElement.textContent);
-    }else {
+    }else if (message.message_type=="refresh key"){
+      messageElement.textContent = `From ${sender} to ${receiver}: ${"Key changed"}`;
+    }
+    else {
       messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
     }
     // messageElement.textContent = `From ${sender} to ${receiver}: ${message.message_text}`;
@@ -307,8 +315,8 @@ async function generate_edmac_key_user1(){
     localStorage.setItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),0);
     localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),0);
 
-    let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
-    let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID.toString()+"to"+peer_id.toString());
+    let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
     console.log(mac_me);
     console.log(mac_other);
     
@@ -340,8 +348,8 @@ async function generate_edmac_key_user2(){
     localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),0);
     localStorage.setItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),0);
 
-    let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID+"to"+peer_id.toString());
-    let mac_me = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID+"to"+peer_id.toString());
+    let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
+    let mac_me = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID.toString()+"to"+peer_id.toString());
     console.log(mac_me);
     console.log(mac_other);
 
@@ -483,17 +491,31 @@ async function generateKey() {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Refresh Keys function placeholder
-function refreshKeys() {
+async function refreshKeys() {
     console.log('Refresh keys functionality will be implemented here.');
     // Placeholder for refresh functionality
-    generate_edmac_key_user1();
-    sendRefreshKeyinit();
+    await generate_edmac_key_user1();
+    await sendRefreshKeyinit();
+}
 
+async function reply_to_key_refresh(message){
+  console.log('Receive information to refresh keys');
+  result = await verifyOldMac(message);
+  if (result==false ){
+    window.alert("invalid old mac");
+    return;
+  }
+  result2 = await verifyNewMac(message);
+  if (result2 == false){
+    window.alert("invalid new mac");
+    return;
+  }
+  await generate_edmac_key_user2();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-async function encryptMessage(message) {
+async function encryptMessage(message, additional) {
     console.log(message);
     const encoded = await getMessageEncoding(message);
     console.log(getArrayBufferString(encoded));
@@ -506,7 +528,7 @@ async function encryptMessage(message) {
     ciphertext = await window.crypto.subtle.encrypt(
         { name: "AES-GCM", 
         iv: iv,
-        additionalData: parseArrayBufferString("CHAT_MSG_USER"+myID.toString+"to"+peer_id.toString())},
+        additionalData: parseArrayBufferString(additional)},
         key,
         encoded,
     );
@@ -518,6 +540,10 @@ async function encryptMessage(message) {
     console.log(getArrayBufferString(ciphertext));
     // console.log(typeof getArrayBufferString(ciphertext));
     return getArrayBufferString(ciphertext);
+
+}
+
+async function encrypt_changeKey_Message(message){
 
 }
 
@@ -542,8 +568,7 @@ async function encryptMessage(message) {
       const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+counter));
       if (last_iv>=ivnum){
         window.alert("iv not valid");
-      }
-      localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+counter, JSON.stringify(ivnum));
+      }      localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+counter, JSON.stringify(ivnum));
     }
     if (message.sender_id==peer_id.toString()){
       const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+counter));
@@ -604,6 +629,54 @@ async function encryptMessage(message) {
     return result;
   }
 
+  async function verifyOldMac(message){
+    const signatureValue = message.message_value;
+    let signature_array = parseArrayBufferString(signatureValue);
+    let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
+    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+counter));
+    const iv = await ivnumToUint8Array(last_iv);
+    let iv_str = getArrayBufferString(iv);
+    let encoded = getMessageEncoding(iv_str+"change");
+    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_"+counter.toString());
+    let result = await window.crypto.subtle.verify(
+      "HMAC",
+      key,
+      signature_array,
+      encoded
+    );
+
+    console.log(result);
+    console.log(typeof result);
+    return result;
+  }
+
+  async function verifyNewMac(message){
+    let keyMaterial =await get_shared_secret_key();
+    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
+
+    let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
+    console.log(mac_other);
+
+    const signatureValue = message.message_tag;
+    let signature_array = parseArrayBufferString(signatureValue);
+    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+(count-1).toString()));
+    const iv = await ivnumToUint8Array(last_iv);
+    let iv_str = getArrayBufferString(iv);
+    let encoded = getMessageEncoding(iv_str+"change");
+    let result = await window.crypto.subtle.verify(
+      "HMAC",
+      mac_other,
+      signature_array,
+      encoded
+    );
+
+    console.log(result);
+    console.log(typeof result);
+    return result;
+
+
+  }
+
   function get_enc_dec_Key(name){
     let keystr = localStorage.getItem(name);
     let array_buffer = parseArrayBufferString(keystr);
@@ -636,12 +709,13 @@ function get_mac(name){
 
 
 
-async function signiv(){
-  let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
+// the mac and iv of same secret
+async function signiv(counter, additional){
+  // let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
   let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()));
   const iv = await ivnumToUint8Array(count);
   let iv_str = getArrayBufferString(iv);
-  let encoded = getMessageEncoding(iv_str);
+  let encoded = getMessageEncoding(iv_str+additional);
   let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+counter.toString());
   let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
   let signstr = getArrayBufferString(signature);
@@ -649,7 +723,22 @@ async function signiv(){
   console.log(signstr);
   console.log(typeof signature);
   return signstr;
-  
+
+}
+
+async function signpreiv(counter, additional){
+  // let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
+  let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+(counter-1).toString()));
+  const iv = await ivnumToUint8Array(count);
+  let iv_str = getArrayBufferString(iv);
+  let encoded = getMessageEncoding(iv_str+additional);
+  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+counter.toString());
+  let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
+  let signstr = getArrayBufferString(signature);
+  console.log("signature:")
+  console.log(signstr);
+  console.log(typeof signature);
+  return signstr;
 
 }
 
