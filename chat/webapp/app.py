@@ -33,8 +33,19 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from flask_mysqldb import MySQL
 from flask_session import Session
 import yaml
+# from flask_limiter import Limiter
+# from flask_limiter.util import get_remote_address
+
+
 
 app = Flask(__name__)
+# limiter = Limiter(
+#     get_remote_address,
+#     app=app,
+#     default_limits=["200 per day", "50 per hour"],
+#     storage_uri="memory://",
+# )
+# limiter = Limiter(app,key_func=get_remote_address)
 
 # Configure secret key and Flask-Session
 app.config['SECRET_KEY'] = 'your_secret_key_here'
@@ -84,7 +95,7 @@ def fetch_messages():
     peer_id = request.args.get('peer_id', type=int)
     
     cur = mysql.connection.cursor()
-    query = """SELECT message_id,sender_id,receiver_id,message_text,message_type, message_value, message_iv, message_tag, message_secret_counter
+    query = """SELECT message_id,sender_id,receiver_id,message_text,message_type, message_value, message_iv, message_tag, created_at
      FROM messages 
                    WHERE message_id > %s AND 
                ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
@@ -104,6 +115,7 @@ def goToRegister():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
+# @limiter.limit('3 per minute')
 def login():
     error = None
     if request.method == 'POST':
@@ -142,17 +154,16 @@ def send_message():
     message_iv = request.json['message_iv']
     message_value = request.json['message_value']
     message_tag = request.json['message_tag']
-    message_secret_counter = request.json['message_secret_counter']
 
     # Assuming you have a function to save messages
-    save_message(sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag, message_secret_counter)
+    save_message(sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag)
     # save_message(sender_id, receiver_id, message_text)
     
     return jsonify({'status': 'success', 'message': 'Message sent'}), 200
 
-def save_message(sender, receiver, message, msg_type, msg_iv, msg_value, msg_tag, msg_secret_counter):
+def save_message(sender, receiver, message, msg_type, msg_iv, msg_value, msg_tag):
     cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag, message_secret_counter) VALUES (%s, %s, %s, %s,%s,%s, %s, %s)", (sender, receiver, message, msg_type,msg_iv, msg_value, msg_tag, msg_secret_counter))
+    cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag) VALUES (%s, %s, %s, %s,%s,%s, %s)", (sender, receiver, message, msg_type,msg_iv, msg_value, msg_tag))
     # cur.execute("INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (%s, %s, %s)", (sender, receiver, message))
 
     mysql.connection.commit()

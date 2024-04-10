@@ -53,6 +53,10 @@ let myKeyPair;
 let otherPublicKey;
 let mySecretKey;
 let myExportPublicKey;
+let myExportPublicKey_time;
+let lastMessage;
+let last_finished;
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Ctrl+Enter to send message
@@ -72,12 +76,13 @@ function sendECDH_request(){
 }
 function sendECDH_response(){
     sendMessage("ECDH response");
+    // myExportPublicKey == null;
 }
 function sendRefreshKeyinit(){
   sendMessage("refresh key");
 }
 function sendRefreshKeyreply(){
-  sendMessage("refresh key");
+  sendMessage("refresh key reply");
 }
 
 // Send message function
@@ -89,26 +94,40 @@ async function sendMessage(type) {
     let tag = '';
     let iv = '';
     let counter = '';
-    if (type=='normal') {
-        counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString())).toString();
+    if (type=='normal' ) {
+        secret_counter = JSON.parse(localStorage.getItem('secret_counter_USER'+peer_id.toString())).toString();
+        counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString())).toString();
+        
         message0 = document.getElementById('messageInput').value;
         message = await encryptMessage(message0, "CHAT_MSG_USER"+myID.toString+"to"+peer_id.toString());
         // message = message0;
-        iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()))).toString();
-        tag = await signiv(Number(counter),"");
+        iv = (JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter.toString()))).toString();
+        tag = await signiv(Number(counter),Number(secret_counter),"");
+    }
+    if (type=='refresh key reply' ) {
+      secret_counter = JSON.parse(localStorage.getItem('secret_counter_USER'+peer_id.toString())).toString();
+      counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString())).toString();
+      
+        message0 = "Key changed";
+        message = await encryptMessage(message0, "CHAT_MSG_USER"+myID.toString+"to"+peer_id.toString());
+        // message = message0;
+        iv = (JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter.toString()))).toString();
+        tag = await signiv(Number(counter),Number(secret_counter),"");
     }
     if (type=='ECDH request'||type=='ECDH response') {
         message0 = myExportPublicKey;
         message = message0;
     }
     if (type=='refresh key'){
-        counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
+      secret_counter = JSON.parse(localStorage.getItem('secret_counter_USER'+peer_id.toString())).toString();
+      counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString())).toString();
+      
         message = "";
-        iv = (JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+(counter-1).toString()))).toString();
-        tag = await signpreiv(counter,"change");
+        iv = (JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+(counter-1).toString()+"_SECRET"+secret_counter.toString()))).toString();
+        tag = await signpreiv(counter, secret_counter,"change");
         // counter_previous = (counter).toString();
         // put the old mac signed iv into msg_value
-        value = await signiv(counter-1,"change");
+        value = await signiv(counter-1, secret_counter, "change");
         counter = ""
         // iv = '';
     }
@@ -120,8 +139,8 @@ async function sendMessage(type) {
         message_iv: iv,
         message_value: value,
         message_tag: tag,
-        message_secret_counter: counter,
     };
+    console.log("the message i sent");
     console.log(JSON.stringify(payload));
 
     fetch('/send_message', {
@@ -171,19 +190,59 @@ $(document).ready(function() {
             populateUsers(data.users);
         })
         .catch(error => console.error('Error fetching user info:', error));
+
 });
 
 // Handle user selection change
-document.getElementById('userList').addEventListener('change', event => {
+document.getElementById('userList').addEventListener('change', async(event) => {
     peer_id = parseInt(event.target.value, 10); // Convert selected peer_id to integer
     clearChatBox();
     lastMessageId = 0;
-    fetchMessages(); // Fetch messages for the new selection
+    await fetchMessages(); // Fetch messages for the new selection
+    console.log("finish fetch");
+    if (localStorage.getItem("USER"+peer_id.toString())==null && myID<peer_id){
+      console.log("init becaus of ls");
+      await initial_ECDH();
+      // localStorage.setItem("USER"+peer_id.toString(),0);
+      setInterval(fetchMessages, 1000);
+      delay();
+      // setTimeout(delay, 65000);
+    }
+    else if (localStorage.getItem("USER"+peer_id.toString())==null && myID>peer_id){
+      // wait for 1 seconds to catch init if there is
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await fetchMessages();
+      console.log("after this fetch");
+      setInterval(fetchMessages, 1000);
+      setInterval(checklocalStorage, 65000);
+    }else {
+      setInterval(fetchMessages, 1000);
+      setInterval(checklocalStorage, 65000);
+    }
+    // setInterval(fetchMessages, 1000);
+    
 });
+
+function delay(){
+  // a key exchange message is valid for 1min
+  setInterval(checklocalStorage, 65000);
+}
+
+function test(){
+  console.log("hello");
+}
 
 // Clear chat box
 function clearChatBox() {
     document.getElementById('messages').innerHTML = '';
+}
+
+function checklocalStorage(){
+  console.log("checklocalStorage");
+  if (localStorage.getItem("USER"+peer_id.toString())==null){
+      initial_ECDH();
+      // localStorage.setItem("USER"+peer_id.toString(),0);
+    }
 }
 
 // Fetch messages from server
@@ -194,21 +253,29 @@ function fetchMessages() {
         .then(data => {
             data.messages.forEach(async(message) => {
                 await displayMessage(message);
+                console.log(message.created_at);
                 lastMessageId = message.message_id;
                 console.log(message.message_type);
-                if (message.message_type == "ECDH request" && message.sender_id == peer_id){
+                var diff = Date.now()-new Date(message.created_at).getTime();
+                console.log(diff);
+                var minutes = Math.floor((diff/1000)/60);
+                console.log(minutes);
+                if (message.message_type == "ECDH request" && message.sender_id == peer_id && minutes<1  ){
+                    if (localStorage.getItem("USER"+peer_id.toString())==null){
+                      localStorage.setItem("USER"+peer_id.toString(),0);
+                    }
                     reply_to_ECDH(message.message_text);
                 }
-                if (message.message_type=='ECDH response' && message.sender_id == peer_id){
+                if (message.message_type=='ECDH response' && message.sender_id == peer_id && minutes<1){
                     receive_ECDH_response(message.message_text);
                 }
-                if (message.message_type=='refresh key' && message.sender_id == peer_id){
+                if (message.message_type=='refresh key' && message.sender_id == peer_id && minutes<1){
                     reply_to_key_refresh(message);
                 }
-
             });
         })
         .catch(error => console.error('Error fetching messages:', error));
+    console.log("fetch message");
 }
 
 // Display a single message
@@ -221,7 +288,7 @@ async function displayMessage(message) {
     const sender = message.sender_id == myID ? "me" : (userInfo[message.sender_id] || `User ${message.sender_id}`);
     const receiver = message.receiver_id == myID ? "me" : (userInfo[message.receiver_id] || `User ${message.receiver_id}`);
     console.log("this");
-    if (message.message_type=="normal"){
+    if (message.message_type=="normal" || message.message_type=="refresh key reply"){
       console.log("sadd");
       let text = await decryptMessage(message);
       messageElement.textContent = `From ${sender} to ${receiver}: ${text}`;
@@ -244,8 +311,10 @@ async function displayMessage(message) {
 
 }
 
+// console.log("already set interval");
 // Periodically fetch new messages every second
-setInterval(fetchMessages, 1000);
+// setInterval(fetchMessages, 1000);
+// setInterval(checklocalStorage,2000);
 
 // Erase Chat function using fetch API
 function eraseChat() {
@@ -284,21 +353,39 @@ async function initial_ECDH(){
 async function receive_ECDH_response(otherpublickey){
     await generate_secret_key(otherpublickey);
     await generate_edmac_key_user1();
+    localStorage.setItem("USER"+peer_id.toString(),0);
+    
+
 }
 
 async function reply_to_ECDH(otherpublickey){
+  // if (myExportPublicKey == null){
     await generateKey();
     await sendECDH_response();
     await generate_secret_key(otherpublickey);
     await generate_edmac_key_user2();
+    // myExportPublicKey == null;
+  // }else {
+  //   await generate_secret_key(otherpublickey);
+  //   if (myID>peer_id){
+  //     generate_edmac_key_user2();
+  //   }else {
+  //     await generate_edmac_key_user1();
+  //   }
+  //   myExportPublicKey ==null;
+  // }
+
+
+
 }
 
 async function generate_edmac_key_user1(){
     let keyMaterial =await get_shared_secret_key();
     console.log(typeof keyMaterial);
     console.log(keyMaterial);
-    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
-    localStorage.setItem('secret_bits_counter_'+peer_id.toString(), JSON.stringify(count));
+    let secret_counter = JSON.parse(localStorage.getItem('secret_counter_USER'+peer_id.toString())).toString();
+    let count = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()))+1;
+    localStorage.setItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString(), JSON.stringify(count));
     let encryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID+"to"+peer_id.toString());
     let decryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID);
     console.log(encryption);
@@ -307,13 +394,13 @@ async function generate_edmac_key_user1(){
     // buffer array
     const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
     let encryption_str = getArrayBufferString(encryption_exported);
-    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),encryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),encryption_str);
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
-    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),decryption_str);
-    localStorage.setItem("encryption_iv_"+peer_id.toString()+"_"+count.toString(),0);
-    localStorage.setItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),0);
-    localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),0);
+    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),decryption_str);
+    localStorage.setItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
+    localStorage.setItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
+    localStorage.setItem("decryption_iv_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
 
     let mac_me = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+myID.toString()+"to"+peer_id.toString());
     let mac_other = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
@@ -322,9 +409,9 @@ async function generate_edmac_key_user1(){
     
     mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
     // console.log(typeof mac_me_exported);
-    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),JSON.stringify(mac_me_exported));
+    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),JSON.stringify(mac_me_exported));
     mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
-    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),JSON.stringify(mac_other_exported));
+    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),JSON.stringify(mac_other_exported));
 
 
 }
@@ -333,20 +420,21 @@ async function generate_edmac_key_user2(){
     let keyMaterial =await get_shared_secret_key();
     console.log(typeof keyMaterial);
     console.log(keyMaterial);
-    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
-    localStorage.setItem('secret_bits_counter_'+peer_id.toString(), JSON.stringify(count));
+    let secret_counter = JSON.parse(localStorage.getItem('secret_counter_USER'+peer_id.toString())).toString();
+    let count = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()))+1;
+    localStorage.setItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString(), JSON.stringify(count));
     let decryption = await getKey(keyMaterial, 2*count-1, "CHAT_KEY_"+myID.toString()+"to"+peer_id.toString());
     let encryption = await getKey(keyMaterial, 2*count, "CHAT_KEY_"+peer_id.toString()+"to"+myID.toString());
     
     const encryption_exported = await window.crypto.subtle.exportKey("raw",encryption);
     let encryption_str = getArrayBufferString(encryption_exported);
-    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),encryption_str);
+    localStorage.setItem("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),encryption_str);
     const decryption_exported = await window.crypto.subtle.exportKey("raw",decryption);
     let decryption_str = getArrayBufferString(decryption_exported);
-    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),decryption_str);
-    localStorage.setItem("encryption_iv_"+peer_id.toString()+"_"+count.toString(),0);
-    localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),0);
-    localStorage.setItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),0);
+    localStorage.setItem("CHAT_KEY_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),decryption_str);
+    localStorage.setItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
+    localStorage.setItem("decryption_iv_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
+    localStorage.setItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),0);
 
     let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
     let mac_me = await getmacKey(keyMaterial, 2*count, "CHAT_MAC_"+myID.toString()+"to"+peer_id.toString());
@@ -355,9 +443,9 @@ async function generate_edmac_key_user2(){
 
     mac_me_exported = await window.crypto.subtle.exportKey("jwk",mac_me);
     // console.log(typeof mac_me_exported);
-    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+count.toString(),JSON.stringify(mac_me_exported));
+    localStorage.setItem("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),JSON.stringify(mac_me_exported));
     mac_other_exported = await window.crypto.subtle.exportKey("jwk",mac_other);
-    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString()+"_"+count.toString(),JSON.stringify(mac_other_exported));
+    localStorage.setItem("CHAT_MAC_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+count.toString()+"_SECRET"+secret_counter.toString(),JSON.stringify(mac_other_exported));
 }
 
   /*
@@ -419,6 +507,8 @@ function ivnumToUint8Array(num) {
 }
 
 async function generate_secret_key(otherPublicKey){
+
+
     console.log(otherPublicKey);
   const publicKey = await window.crypto.subtle.importKey(
     "jwk",
@@ -451,10 +541,16 @@ async function generateKey() {
     "jwk",
     myKeyPair.publicKey);
     console.log(myExportPublicKey);
+  // myExportPublicKey_time = 
 }
 
 
   async function deriveSharedSecret(privateKey, publicKey) {
+    if (localStorage.getItem("secret_counter_USER"+peer_id.toString()) == null) {
+      counter = 0;
+    }else {
+      counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    }
     const secret = await window.crypto.subtle.deriveBits(
         // NOT SURE 384
       { name: "ECDH", 
@@ -467,13 +563,15 @@ async function generateKey() {
     console.log(content)
     // console.log(secret)
     let str = getArrayBufferString(secret);
-    localStorage.setItem("secretbits_"+peer_id.toString(),str);
-    localStorage.setItem("secret_bits_counter_"+peer_id.toString(),0);
+    localStorage.setItem("secretbits_USER"+peer_id.toString()+"_COUNTER"+(counter+1).toString(),str);
+    localStorage.setItem("keyset_counter_USER"+peer_id.toString()+"_SECRET"+(counter+1).toString(),0);
+    localStorage.setItem("secret_counter_USER"+peer_id.toString(),JSON.stringify(counter+1));
   }
 
   function get_shared_secret_key(){
-    let secretfromstorage = parseArrayBufferString(localStorage.getItem("secretbits_"+peer_id.toString()));
-    // let strst = localStorage.getItem("secretbits");
+    
+    let counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let secretfromstorage = parseArrayBufferString(localStorage.getItem("secretbits_USER"+peer_id.toString()+"_COUNTER"+counter.toString()));
     
     // console.log(secretfromstorage);
     const buffer2 = new Uint8Array(secretfromstorage,0,48);
@@ -511,6 +609,8 @@ async function reply_to_key_refresh(message){
     return;
   }
   await generate_edmac_key_user2();
+  sendRefreshKeyreply()
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -519,10 +619,11 @@ async function encryptMessage(message, additional) {
     console.log(message);
     const encoded = await getMessageEncoding(message);
     console.log(getArrayBufferString(encoded));
-    let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
-    let key = await get_enc_dec_Key("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_"+counter.toString());
+    let secret_counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()));
+    let key = await get_enc_dec_Key("CHAT_KEY_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter.toString());
     // iv will be needed for decryption
-    let count = await JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()))+1;
+    let count = await JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter.toString()))+1;
     const iv = await ivnumToUint8Array(count);
     console.log(iv);
     ciphertext = await window.crypto.subtle.encrypt(
@@ -533,7 +634,7 @@ async function encryptMessage(message, additional) {
         encoded,
     );
     // the cipher text is length of plain text + 16 bytes 
-    localStorage.setItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString(), JSON.stringify(count));
+    localStorage.setItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter.toString(), JSON.stringify(count));
     let buffer = new Uint8Array(ciphertext, 0, 5);
     console.log("cyphertext value "+ `${buffer}...[${ciphertext.byteLength} bytes total]`);
     console.log("type of ciphertect ",typeof ciphertext);
@@ -562,22 +663,28 @@ async function encrypt_changeKey_Message(message){
       window.alert("signature invalid!")
       return "";
     }
-    let counter = message.message_secret_counter;
+    // let counter = message.message_secret_counter;
+    // TODO
+    let secret_counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()));
     let ivnum = Number(message.message_iv);
     if (message.sender_id==myID.toString()){
-      const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+counter));
+      const last_iv = JSON.parse(localStorage.getItem("decryption_iv_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter));
       if (last_iv>=ivnum){
         window.alert("iv not valid");
-      }      localStorage.setItem("decryption_iv_"+myID.toString()+"to"+peer_id.toString()+"_"+counter, JSON.stringify(ivnum));
+        return "ERROR: invalid iv";
+      }      
+      localStorage.setItem("decryption_iv_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter, JSON.stringify(ivnum));
     }
     if (message.sender_id==peer_id.toString()){
-      const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+counter));
+      const last_iv = JSON.parse(localStorage.getItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter));
       if (last_iv>=ivnum){
         window.alert("iv not valid");
+        return "ERROR: invalid iv";
       }
-      localStorage.setItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+counter, JSON.stringify(ivnum));
+      localStorage.setItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter, JSON.stringify(ivnum));
     }
-    let key = await get_enc_dec_Key("CHAT_KEY_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_"+counter);
+    let key = await get_enc_dec_Key("CHAT_KEY_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter);
     const iv = await ivnumToUint8Array(ivnum);
     console.log(iv);
     let array_buffer = await parseArrayBufferString(message.message_text);
@@ -614,8 +721,11 @@ async function encrypt_changeKey_Message(message){
     const iv = await ivnumToUint8Array(count);
     let iv_str = getArrayBufferString(iv);
     let encoded = getMessageEncoding(iv_str);
-    let counter = message.message_secret_counter;
-    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_"+counter.toString());
+    // let counter = message.message_secret_counter;
+    // TODO
+    let secret_counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()));
+    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter);
 
     let result = await window.crypto.subtle.verify(
       "HMAC",
@@ -632,12 +742,13 @@ async function encrypt_changeKey_Message(message){
   async function verifyOldMac(message){
     const signatureValue = message.message_value;
     let signature_array = parseArrayBufferString(signatureValue);
-    let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
-    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+counter));
+    let secret_counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let counter = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()));
+    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter));
     const iv = await ivnumToUint8Array(last_iv);
     let iv_str = getArrayBufferString(iv);
     let encoded = getMessageEncoding(iv_str+"change");
-    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_"+counter.toString());
+    let key = await get_mac("CHAT_MAC_USER"+message.sender_id.toString()+"to"+message.receiver_id.toString()+"_KEYSET"+counter+"_SECRET"+secret_counter);
     let result = await window.crypto.subtle.verify(
       "HMAC",
       key,
@@ -652,14 +763,15 @@ async function encrypt_changeKey_Message(message){
 
   async function verifyNewMac(message){
     let keyMaterial =await get_shared_secret_key();
-    let count = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()))+1;
+    let secret_counter = JSON.parse(localStorage.getItem("secret_counter_USER"+peer_id.toString()));
+    let count = JSON.parse(localStorage.getItem('keyset_counter_USER'+peer_id.toString()+"_SECRET"+secret_counter.toString()))+1;
 
     let mac_other = await getmacKey(keyMaterial, 2*count-1, "CHAT_MAC_"+peer_id.toString()+"to"+myID.toString());
     console.log(mac_other);
 
     const signatureValue = message.message_tag;
     let signature_array = parseArrayBufferString(signatureValue);
-    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_"+peer_id.toString()+"to"+myID.toString()+"_"+(count-1).toString()));
+    const last_iv = JSON.parse(localStorage.getItem("decryption_iv_USER"+peer_id.toString()+"to"+myID.toString()+"_KEYSET"+(count-1).toString()+"_SECRET"+secret_counter));
     const iv = await ivnumToUint8Array(last_iv);
     let iv_str = getArrayBufferString(iv);
     let encoded = getMessageEncoding(iv_str+"change");
@@ -710,13 +822,13 @@ function get_mac(name){
 
 
 // the mac and iv of same secret
-async function signiv(counter, additional){
+async function signiv(counter, secret_counter, additional){
   // let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
-  let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+counter.toString()));
+  let count = JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter));
   const iv = await ivnumToUint8Array(count);
   let iv_str = getArrayBufferString(iv);
   let encoded = getMessageEncoding(iv_str+additional);
-  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+counter.toString());
+  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter);
   let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
   let signstr = getArrayBufferString(signature);
   console.log("signature:")
@@ -726,13 +838,13 @@ async function signiv(counter, additional){
 
 }
 
-async function signpreiv(counter, additional){
+async function signpreiv(counter, secret_counter, additional){
   // let counter = JSON.parse(localStorage.getItem('secret_bits_counter_'+peer_id.toString()));
-  let count = JSON.parse(localStorage.getItem("encryption_iv_"+peer_id.toString()+"_"+(counter-1).toString()));
+  let count = JSON.parse(localStorage.getItem("encryption_iv_USER"+peer_id.toString()+"_KEYSET"+(counter-1).toString()+"_SECRET"+secret_counter));
   const iv = await ivnumToUint8Array(count);
   let iv_str = getArrayBufferString(iv);
   let encoded = getMessageEncoding(iv_str+additional);
-  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_"+counter.toString());
+  let key = await get_mac("CHAT_MAC_USER"+myID.toString()+"to"+peer_id.toString()+"_KEYSET"+counter.toString()+"_SECRET"+secret_counter);
   let signature = await window.crypto.subtle.sign("HMAC", key, encoded);
   let signstr = getArrayBufferString(signature);
   console.log("signature:")
