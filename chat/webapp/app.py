@@ -156,6 +156,7 @@ def send_message():
     message_tag = request.json['message_tag']
 
     # Assuming you have a function to save messages
+    # if (message_type!="erase chat"):
     save_message(sender_id, receiver_id, message_text, message_type, message_iv, message_value, message_tag)
     # save_message(sender_id, receiver_id, message_text)
     
